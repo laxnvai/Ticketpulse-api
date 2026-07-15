@@ -69,6 +69,39 @@ async function searchSeatGeek(query, category, location, maxPrice) {
   } catch(err) { console.error('[SG]', err.message); return []; }
 }
 
+async function searchBandsintown(query, category) {
+  if (category !== 'music' && category !== 'comedy') return [];
+  try {
+    const url = `https://rest.bandsintown.com/artists/${encodeURIComponent(query)}/events?app_id=ticketpulse`;
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const events = await r.json();
+    if (!Array.isArray(events)) return [];
+    return events.slice(0, 5).map(e => {
+      const venue = e.venue || {};
+      const date = e.datetime ? new Date(e.datetime).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
+      if (e.datetime && new Date(e.datetime) < new Date()) return null;
+      const venueName = [venue.name, venue.city, venue.region].filter(Boolean).join(', ');
+      const ticketUrl = e.offers && e.offers[0] && e.offers[0].url ? e.offers[0].url : e.url;
+      return {
+        event: `${query} - ${e.title || 'Concert'}`,
+        match: `${query} - ${e.title || 'Concert'}`,
+        show: `${query} - ${e.title || 'Concert'}`,
+        date,
+        venue: venueName || 'TBA',
+        price: 'Check site',
+        price_number: 0,
+        source: 'Bandsintown',
+        url: ticketUrl || `https://www.bandsintown.com/a/${encodeURIComponent(query)}`,
+        genre: '',
+        distance: 'Check venue',
+        verified: true,
+        trust_reason: 'Official Bandsintown listing'
+      };
+    }).filter(Boolean);
+  } catch(err) { console.error('[BIT]', err.message); return []; }
+}
+
 function parseJsonArray(text) {
   if (!text) return [];
   const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -176,11 +209,12 @@ export default async function handler(req, res) {
       const key = `${s.category}:${s.query.toLowerCase()}:${s.location||''}`;
       if (getCached(key)) { prefetched++; return; }
       try {
-        const [tm, sg] = await Promise.all([
+        const [tm, sg, bit] = await Promise.all([
           searchTicketmaster(s.query, s.category, s.location, null),
-          searchSeatGeek(s.query, s.category, s.location, null)
+          searchSeatGeek(s.query, s.category, s.location, null),
+          searchBandsintown(s.query, s.category)
         ]);
-        const tickets = [...tm, ...sg];
+        const tickets = [...tm, ...sg, ...bit];
         if (tickets.length) { setCache(key, { tickets, prediction: null, flights: [], hotels: [] }); prefetched++; }
       } catch(e) {}
     }));
@@ -201,14 +235,15 @@ export default async function handler(req, res) {
     const predCacheKey = `pred:${query.toLowerCase()}:${category}`;
     const cachedPred = getCached(predCacheKey);
 
-    const [tmTickets, sgTickets] = await Promise.all([
+    const [tmTickets, sgTickets, bitTickets] = await Promise.all([
       searchTicketmaster(query, category, location, maxPrice),
-      searchSeatGeek(query, category, location, maxPrice)
+      searchSeatGeek(query, category, location, maxPrice),
+      searchBandsintown(query, category)
     ]);
-    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} for ${query}`);
+    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} [BIT] ${bitTickets.length} for ${query}`);
 
     const seen = new Set();
-    const mergedTickets = [...tmTickets, ...sgTickets].filter(t => {
+    const mergedTickets = [...tmTickets, ...sgTickets, ...bitTickets].filter(t => {
       const key = (t.match || t.event || '').toLowerCase() + (t.date || '');
       if (seen.has(key)) return false;
       seen.add(key);
