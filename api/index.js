@@ -1,5 +1,7 @@
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const TICKETMASTER_KEY = process.env.TICKETMASTER_KEY || '4UnoKjrhVNJbUxCaYZ2HdVMc5hVXOZqg';
+const SEATGEEK_CLIENT_ID = process.env.SEATGEEK_CLIENT_ID;
+const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET;
 
 const cache = new Map();
 const CACHE_TTL = 60 * 60 * 1000;
@@ -177,9 +179,24 @@ export default async function handler(req, res) {
     const sys = getSearchSystem(query, category, pf, lf, cf, gf);
     const predCacheKey = `pred:${query.toLowerCase()}:${category}`;
     const cachedPred = getCached(predCacheKey);
-    let tmTickets = await searchTicketmaster(query, category, location, maxPrice);
+    // Search Ticketmaster AND SeatGeek in parallel - free, instant, accurate
+    const [tmTickets, sgTickets] = await Promise.all([
+      searchTicketmaster(query, category, location, maxPrice),
+      searchSeatGeek(query, category, location, maxPrice)
+    ]);
+    console.log(`[TM] ${tmTickets.length} results, [SG] ${sgTickets.length} results for ${query}`);
+
+    // Merge results - deduplicate by event name and date
+    const seen = new Set();
+    const mergedTickets = [...tmTickets, ...sgTickets].filter(t => {
+      const key = (t.match || t.event || '').toLowerCase() + (t.date || '');
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).sort((a, b) => (a.price_number || 9999) - (b.price_number || 9999));
+
     const [rawTickets, prediction] = await Promise.all([
-      tmTickets.length >= 2 ? Promise.resolve(tmTickets) : callAnthropic(sys, `Search right now for available "${query}" ${category} tickets. JSON only.`),
+      mergedTickets.length >= 2 ? Promise.resolve(mergedTickets) : callAnthropic(sys, `Search right now for available "${query}" ${category} tickets. JSON only.`),
       cachedPred ? Promise.resolve(cachedPred) : callAnthropicObject(
         `Ticket price analyst. Today ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}. Return ONLY JSON: {"trend":"rising/falling/stable","confidence":"high/medium/low","recommendation":"buy_now/wait/uncertain","reason":"One sentence","badge":"Best time to buy / Prices rising fast / Wait for drops / Good deal now"}`,
         `Analyze price trend for ${query} tickets. JSON only.`
