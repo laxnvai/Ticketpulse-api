@@ -2,6 +2,7 @@ const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const TICKETMASTER_KEY = process.env.TICKETMASTER_KEY || '4UnoKjrhVNJbUxCaYZ2HdVMc5hVXOZqg';
 const SEATGEEK_CLIENT_ID = process.env.SEATGEEK_CLIENT_ID;
 const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET;
+const EVENTBRITE_TOKEN = process.env.EVENTBRITE_TOKEN;
 
 const cache = new Map();
 const CACHE_TTL = 60 * 60 * 1000;
@@ -100,6 +101,44 @@ async function searchBandsintown(query, category) {
       };
     }).filter(Boolean);
   } catch(err) { console.error('[BIT]', err.message); return []; }
+}
+
+async function searchEventbrite(query, category, location) {
+  if (category !== 'comedy' && category !== 'theater') return [];
+  try {
+    if (!EVENTBRITE_TOKEN) return [];
+    const catMap = { comedy: 'comedy', theater: 'performing_arts' };
+    const subcat = catMap[category] || 'comedy';
+    let url = `https://www.eventbriteapi.com/v3/events/search/?q=${encodeURIComponent(query)}&categories=${subcat}&expand=venue,ticket_availability&sort_by=date&token=${EVENTBRITE_TOKEN}`;
+    if (location) { const city = location.split(',')[0].trim(); url += `&location.address=${encodeURIComponent(city)}&location.within=50mi`; }
+    const r = await fetch(url);
+    if (!r.ok) return [];
+    const data = await r.json();
+    const events = data.events || [];
+    return events.slice(0, 5).map(e => {
+      const venue = e.venue || {};
+      const date = e.start && e.start.local ? new Date(e.start.local).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
+      if (e.start && e.start.local && new Date(e.start.local) < new Date()) return null;
+      const venueName = [venue.name, venue.address && venue.address.city, venue.address && venue.address.region].filter(Boolean).join(', ');
+      const ticket = e.ticket_availability || {};
+      const price = ticket.minimum_ticket_price ? `$${Math.round(parseFloat(ticket.minimum_ticket_price.major_value))}` : (e.is_free ? 'Free' : 'Check site');
+      const priceNum = ticket.minimum_ticket_price ? Math.round(parseFloat(ticket.minimum_ticket_price.major_value)) : 0;
+      return {
+        show: e.name && e.name.text || query,
+        event: e.name && e.name.text || query,
+        match: e.name && e.name.text || query,
+        date,
+        venue: venueName || 'TBA',
+        price,
+        price_number: priceNum,
+        source: 'Eventbrite',
+        url: e.url,
+        distance: 'Check venue',
+        verified: true,
+        trust_reason: 'Official Eventbrite listing'
+      };
+    }).filter(Boolean);
+  } catch(err) { console.error('[EB]', err.message); return []; }
 }
 
 function parseJsonArray(text) {
@@ -235,15 +274,16 @@ export default async function handler(req, res) {
     const predCacheKey = `pred:${query.toLowerCase()}:${category}`;
     const cachedPred = getCached(predCacheKey);
 
-    const [tmTickets, sgTickets, bitTickets] = await Promise.all([
+    const [tmTickets, sgTickets, bitTickets, ebTickets] = await Promise.all([
       searchTicketmaster(query, category, location, maxPrice),
       searchSeatGeek(query, category, location, maxPrice),
-      searchBandsintown(query, category)
+      searchBandsintown(query, category),
+      searchEventbrite(query, category, location)
     ]);
-    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} [BIT] ${bitTickets.length} for ${query}`);
+    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} [BIT] ${bitTickets.length} [EB] ${ebTickets.length} for ${query}`);
 
     const seen = new Set();
-    const mergedTickets = [...tmTickets, ...sgTickets, ...bitTickets].filter(t => {
+    const mergedTickets = [...tmTickets, ...sgTickets, ...bitTickets, ...ebTickets].filter(t => {
       const key = (t.match || t.event || '').toLowerCase() + (t.date || '');
       if (seen.has(key)) return false;
       seen.add(key);
