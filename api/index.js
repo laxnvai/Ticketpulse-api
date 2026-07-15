@@ -141,6 +141,54 @@ async function searchEventbrite(query, category, location) {
   } catch(err) { console.error('[EB]', err.message); return []; }
 }
 
+async function searchSportsDB(query, category, location) {
+  if (!['basketball','football','baseball'].includes(category)) return [];
+  try {
+    const sportMap = { basketball: 'Basketball', football: 'American Football', baseball: 'Baseball' };
+    const leagueMap = { basketball: '4387', football: '4391', baseball: '4424' };
+    const sport = sportMap[category];
+    const leagueId = leagueMap[category];
+
+    // Search for team events
+    const teamUrl = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(query)}`;
+    const teamRes = await fetch(teamUrl);
+    if (!teamRes.ok) return [];
+    const teamData = await teamRes.json();
+    const teams = teamData.teams || [];
+    if (!teams.length) return [];
+
+    const team = teams[0];
+    const eventsUrl = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${team.idTeam}`;
+    const eventsRes = await fetch(eventsUrl);
+    if (!eventsRes.ok) return [];
+    const eventsData = await eventsRes.json();
+    const events = eventsData.events || [];
+
+    return events.slice(0, 5).map(e => {
+      const date = e.dateEvent ? new Date(e.dateEvent).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
+      if (e.dateEvent && new Date(e.dateEvent) < new Date()) return null;
+      const venueName = [e.strVenue, e.strCity, e.strCountry].filter(Boolean).join(', ');
+      // Build Ticketmaster search URL for this game
+      const tmSearchUrl = `https://www.ticketmaster.com/search?q=${encodeURIComponent(e.strEvent || query)}`;
+      return {
+        match: e.strEvent || `${query} game`,
+        event: e.strEvent || `${query} game`,
+        show: e.strEvent || `${query} game`,
+        date,
+        venue: venueName || 'TBA',
+        price: 'Check site',
+        price_number: 0,
+        source: 'TheSportsDB',
+        url: tmSearchUrl,
+        league: e.strLeague || sport,
+        distance: 'Check venue',
+        verified: true,
+        trust_reason: 'Official TheSportsDB schedule'
+      };
+    }).filter(Boolean);
+  } catch(err) { console.error('[SDB]', err.message); return []; }
+}
+
 function parseJsonArray(text) {
   if (!text) return [];
   const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
@@ -274,16 +322,17 @@ export default async function handler(req, res) {
     const predCacheKey = `pred:${query.toLowerCase()}:${category}`;
     const cachedPred = getCached(predCacheKey);
 
-    const [tmTickets, sgTickets, bitTickets, ebTickets] = await Promise.all([
+    const [tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets] = await Promise.all([
       searchTicketmaster(query, category, location, maxPrice),
       searchSeatGeek(query, category, location, maxPrice),
       searchBandsintown(query, category),
-      searchEventbrite(query, category, location)
+      searchEventbrite(query, category, location),
+      searchSportsDB(query, category, location)
     ]);
-    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} [BIT] ${bitTickets.length} [EB] ${ebTickets.length} for ${query}`);
+    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} [BIT] ${bitTickets.length} [EB] ${ebTickets.length} [SDB] ${sdbTickets.length} for ${query}`);
 
     const seen = new Set();
-    const mergedTickets = [...tmTickets, ...sgTickets, ...bitTickets, ...ebTickets].filter(t => {
+    const mergedTickets = [...tmTickets, ...sgTickets, ...bitTickets, ...ebTickets, ...sdbTickets].filter(t => {
       const key = (t.match || t.event || '').toLowerCase() + (t.date || '');
       if (seen.has(key)) return false;
       seen.add(key);
