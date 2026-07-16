@@ -56,11 +56,17 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       const venueNameLower = (venue.name || '').toLowerCase();
       const BAR_KEYWORDS = ['bar', 'pub', 'tavern', 'restaurant', 'cafe', 'brewery', 'lounge', 'inn', 'kitchen', 'grill', 'forum', 'club', 'hotel', 'hostel', 'arms', 'theatre', 'cinema', 'o2 forum', 'academy'];
       if (['soccer','football','basketball','baseball'].includes(category) && BAR_KEYWORDS.some(kw => venueNameLower.includes(kw))) return null;
-      // For soccer/football, only accept US venues (World Cup 2026 is in USA)
-      // Filter out events in UK/Europe for soccer searches
-      if (category === 'soccer') {
+      // Filter out non-stadium venues for soccer - keep real stadiums
+      if (category === 'soccer' || category === 'football') {
         const countryCode = venue.country && venue.country.countryCode;
-        if (countryCode && countryCode !== 'US' && countryCode !== 'CA' && countryCode !== 'MX') return null;
+        // Allow US, Canada, Mexico (World Cup 2026 host countries)
+        // Also allow events without country code (sometimes missing)
+        if (countryCode && !['US','CA','MX'].includes(countryCode)) {
+          // Only filter UK/Europe if venue looks like a bar/pub
+          const venueLower = (venue.name || '').toLowerCase();
+          const isBarType = ['forum', 'inn', 'arms', 'pub', 'bar', 'tavern', 'kitchen', 'grill', 'cafe', 'brewery'].some(kw => venueLower.includes(kw));
+          if (isBarType) return null;
+        }
       }
       return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing', dateRaw: dateLocal };
     }).filter(Boolean);
@@ -366,21 +372,33 @@ export default async function handler(req, res) {
     return res.json({ success: true, review: newReview });
   }
 
-  // COMPARE - uses cached results, free
+  // COMPARE - search and compare across platforms
   if (path === '/api/compare') {
     const { query, category } = body;
     if (!query) return res.status(400).json({ error: 'Missing query' });
+    // Try cache first
     const cacheKey = `${category}:${query.toLowerCase()}::`;
     const cached = getCached(cacheKey);
-    const tickets = cached ? cached.tickets : [];
-    if (tickets.length) {
-      const comparisons = tickets
-        .filter(t => t.price_number && t.price_number > 0)
-        .sort((a,b) => a.price_number - b.price_number)
-        .map(t => ({ source: t.source, price: t.price, price_number: t.price_number, url: t.url, section: t.venue }));
-      return res.json({ comparisons, fromCache: true });
+    let tickets = cached ? cached.tickets : [];
+    // If no cache, do a fresh search
+    if (!tickets.length) {
+      const [tm, sg] = await Promise.all([
+        searchTicketmaster(query, category, '', null),
+        searchSeatGeek(query, category, '', null)
+      ]);
+      tickets = mergeTickets([tm, sg], null);
     }
-    return res.json({ comparisons: [], fromCache: false });
+    const comparisons = tickets
+      .filter(t => t.price_number && t.price_number > 0)
+      .sort((a,b) => a.price_number - b.price_number)
+      .slice(0, 10)
+      .map(t => ({ source: t.source, price: t.price, price_number: t.price_number, url: t.url, section: t.venue }));
+    // If no priced tickets, return all tickets for display  
+    if (!comparisons.length) {
+      const allComps = tickets.slice(0, 8).map(t => ({ source: t.source, price: t.price||'Check site', price_number: t.price_number||0, url: t.url, section: t.venue }));
+      return res.json({ comparisons: allComps, fromCache: !!cached });
+    }
+    return res.json({ comparisons, fromCache: !!cached });
   }
 
   // DIGEST - uses cached data, free
