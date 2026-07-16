@@ -23,12 +23,18 @@ const SG_TYPES = { soccer:'soccer', music:'concert', basketball:'nba', football:
 async function searchTicketmaster(query, category, location, maxPrice) {
   try {
     const classificationName = TM_CLASSIFICATIONS[category] || 'Music';
+    // Try with classification first, then without if no results
     let url = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${TICKETMASTER_KEY}&keyword=${encodeURIComponent(query)}&classificationName=${encodeURIComponent(classificationName)}&size=8&sort=date,asc`;
     if (location) { const city = location.split(',')[0].trim(); url += `&city=${encodeURIComponent(city)}`; }
-    const r = await fetch(url);
-    if (!r.ok) return [];
-    const data = await r.json();
-    const events = (data._embedded && data._embedded.events) || [];
+    let tmR = await fetch(url);
+    let tmData = tmR.ok ? await tmR.json() : {};
+    let events = (tmData._embedded && tmData._embedded.events) || [];
+    if (!events.length) {
+      let url2 = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${TICKETMASTER_KEY}&keyword=${encodeURIComponent(query)}&size=8&sort=date,asc`;
+      if (location) { const city2 = location.split(',')[0].trim(); url2 += `&city=${encodeURIComponent(city2)}`; }
+      const r2 = await fetch(url2);
+      if (r2.ok) { const d2 = await r2.json(); events = (d2._embedded && d2._embedded.events) || []; }
+    }
     return events.map(e => {
       const venue = e._embedded && e._embedded.venues && e._embedded.venues[0];
       const priceRange = e.priceRanges && e.priceRanges[0];
@@ -49,7 +55,7 @@ async function searchSeatGeek(query, category, location, maxPrice) {
   try {
     if (!SEATGEEK_CLIENT_ID) return [];
     const type = SG_TYPES[category] || 'concert';
-    let url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(query)}&type=${type}&per_page=8&sort=datetime_asc&client_id=${SEATGEEK_CLIENT_ID}&client_secret=${SEATGEEK_CLIENT_SECRET}`;
+    let url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(query)}&per_page=8&sort=datetime_asc&client_id=${SEATGEEK_CLIENT_ID}&client_secret=${SEATGEEK_CLIENT_SECRET}`;
     if (location) { const city = location.split(',')[0].trim(); url += `&venue.city=${encodeURIComponent(city)}`; }
     const r = await fetch(url);
     if (!r.ok) return [];
