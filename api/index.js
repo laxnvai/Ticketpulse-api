@@ -308,12 +308,17 @@ export default async function handler(req, res) {
 
     console.log(`[TM]${tmTickets.length} [SG]${sgTickets.length} [BIT]${bitTickets.length} [EB]${ebTickets.length} [SDB]${sdbTickets.length}`);
 
-    const tickets = mergeTickets([tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets], maxPrice);
+    const allTickets = mergeTickets([tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets], maxPrice);
+    
+    // Separate real tickets from watch parties
+    const WATCH_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online event', 'screening', 'tv party', 'watch event'];
+    const tickets = allTickets.filter(t => !WATCH_KEYWORDS.some(kw => (t.match||t.event||'').toLowerCase().includes(kw)));
+    const watchParties = allTickets.filter(t => WATCH_KEYWORDS.some(kw => (t.match||t.event||'').toLowerCase().includes(kw)));
 
     // FREE smart prediction - no AI needed
     const prediction = smartPricePrediction(tickets, query, category);
 
-    const result = { tickets, prediction, flights: [], hotels: [], fromCache: false };
+    const result = { tickets, watchParties, prediction, flights: [], hotels: [], fromCache: false };
     if (tickets.length) setCache(cacheKey, result);
     return res.json(result);
   }
