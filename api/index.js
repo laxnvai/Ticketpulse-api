@@ -35,6 +35,8 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       const r2 = await fetch(url2);
       if (r2.ok) { const d2 = await r2.json(); events = (d2._embedded && d2._embedded.events) || []; }
     }
+    // Filter keywords that indicate non-live events
+    const EXCLUDE_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online', 'broadcast', 'screening', 'tv party'];
     return events.map(e => {
       const venue = e._embedded && e._embedded.venues && e._embedded.venues[0];
       const priceRange = e.priceRanges && e.priceRanges[0];
@@ -45,6 +47,11 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (dateLocal && new Date(dateLocal) < new Date()) return null;
       const date = dateLocal ? new Date(dateLocal).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
       if (maxPrice && priceNum && priceNum > maxPrice) return null;
+      // Filter out watch parties and non-live events
+      const nameLower = (e.name || '').toLowerCase();
+      if (EXCLUDE_KEYWORDS.some(kw => nameLower.includes(kw))) return null;
+      // Must have a real venue
+      if (!venue || !venue.name) return null;
       return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing', dateRaw: dateLocal };
     }).filter(Boolean);
   } catch(err) { console.error('[TM]', err.message); return []; }
@@ -61,6 +68,7 @@ async function searchSeatGeek(query, category, location, maxPrice) {
     if (!r.ok) return [];
     const data = await r.json();
     const events = data.events || [];
+    const SG_EXCLUDE = ['watch party', 'viewing party', 'watch along', 'livestream', 'virtual', 'online', 'screening'];
     return events.map(e => {
       const venue = e.venue;
       const price = e.stats && e.stats.lowest_price ? `$${Math.round(e.stats.lowest_price)}` : 'Check site';
@@ -69,6 +77,9 @@ async function searchSeatGeek(query, category, location, maxPrice) {
       const venueName = venue ? `${venue.name}, ${venue.city}, ${venue.state}` : 'TBA';
       if (maxPrice && priceNum && priceNum > maxPrice) return null;
       if (e.datetime_local && new Date(e.datetime_local) < new Date()) return null;
+      const titleLower = (e.title || '').toLowerCase();
+      if (SG_EXCLUDE.some(kw => titleLower.includes(kw))) return null;
+      if (!venue || !venue.name) return null;
       return { match: e.title, event: e.title, show: e.title, date, venue: venueName, price, price_number: priceNum, source: 'SeatGeek', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official SeatGeek listing', dateRaw: e.datetime_local };
     }).filter(Boolean);
   } catch(err) { console.error('[SG]', err.message); return []; }
