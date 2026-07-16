@@ -1,11 +1,10 @@
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const TICKETMASTER_KEY = process.env.TICKETMASTER_KEY || '4UnoKjrhVNJbUxCaYZ2HdVMc5hVXOZqg';
 const SEATGEEK_CLIENT_ID = process.env.SEATGEEK_CLIENT_ID;
 const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET;
 const EVENTBRITE_TOKEN = process.env.EVENTBRITE_TOKEN;
 
 const cache = new Map();
-const CACHE_TTL = 60 * 60 * 1000;
+const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - saves money
 function getCached(key) {
   const item = cache.get(key);
   if (!item) return null;
@@ -14,19 +13,17 @@ function getCached(key) {
 }
 function setCache(key, data) {
   cache.set(key, { data, timestamp: Date.now() });
-  if (cache.size > 200) { cache.delete(cache.keys().next().value); }
+  if (cache.size > 500) { cache.delete(cache.keys().next().value); }
 }
-
-const TRUSTED_TICKETS = ['seatgeek','stubhub','ticketmaster','gametime','tickpick','vividseats','axs','livenation','viagogo','fifa','nba.com','nfl.com','mlb.com','telecharge','broadwaybox','playbill','todaytix'];
-function isTrusted(source, list) { if (!source) return false; const s = source.toLowerCase(); return list.some(p => s.includes(p)); }
 
 const TM_CLASSIFICATIONS = { soccer:'Soccer', music:'Music', football:'Football', basketball:'Basketball', baseball:'Baseball', theater:'Arts & Theatre', comedy:'Comedy' };
 const SG_TYPES = { soccer:'soccer', music:'concert', basketball:'nba', football:'nfl', baseball:'mlb', theater:'theater', comedy:'comedy' };
 
+// FREE: Ticketmaster API
 async function searchTicketmaster(query, category, location, maxPrice) {
   try {
     const classificationName = TM_CLASSIFICATIONS[category] || 'Music';
-    let url = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${TICKETMASTER_KEY}&keyword=${encodeURIComponent(query)}&classificationName=${encodeURIComponent(classificationName)}&size=5&sort=date,asc`;
+    let url = `https://app.ticketmaster.com/discovery/v2/events.json?apikey=${TICKETMASTER_KEY}&keyword=${encodeURIComponent(query)}&classificationName=${encodeURIComponent(classificationName)}&size=8&sort=date,asc`;
     if (location) { const city = location.split(',')[0].trim(); url += `&city=${encodeURIComponent(city)}`; }
     const r = await fetch(url);
     if (!r.ok) return [];
@@ -42,16 +39,17 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (dateLocal && new Date(dateLocal) < new Date()) return null;
       const date = dateLocal ? new Date(dateLocal).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
       if (maxPrice && priceNum && priceNum > maxPrice) return null;
-      return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing' };
+      return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing', dateRaw: dateLocal };
     }).filter(Boolean);
   } catch(err) { console.error('[TM]', err.message); return []; }
 }
 
+// FREE: SeatGeek API
 async function searchSeatGeek(query, category, location, maxPrice) {
   try {
     if (!SEATGEEK_CLIENT_ID) return [];
     const type = SG_TYPES[category] || 'concert';
-    let url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(query)}&type=${type}&per_page=5&sort=datetime_asc&client_id=${SEATGEEK_CLIENT_ID}&client_secret=${SEATGEEK_CLIENT_SECRET}`;
+    let url = `https://api.seatgeek.com/2/events?q=${encodeURIComponent(query)}&type=${type}&per_page=8&sort=datetime_asc&client_id=${SEATGEEK_CLIENT_ID}&client_secret=${SEATGEEK_CLIENT_SECRET}`;
     if (location) { const city = location.split(',')[0].trim(); url += `&venue.city=${encodeURIComponent(city)}`; }
     const r = await fetch(url);
     if (!r.ok) return [];
@@ -65,15 +63,16 @@ async function searchSeatGeek(query, category, location, maxPrice) {
       const venueName = venue ? `${venue.name}, ${venue.city}, ${venue.state}` : 'TBA';
       if (maxPrice && priceNum && priceNum > maxPrice) return null;
       if (e.datetime_local && new Date(e.datetime_local) < new Date()) return null;
-      return { match: e.title, event: e.title, show: e.title, date, venue: venueName, price, price_number: priceNum, source: 'SeatGeek', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official SeatGeek listing' };
+      return { match: e.title, event: e.title, show: e.title, date, venue: venueName, price, price_number: priceNum, source: 'SeatGeek', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official SeatGeek listing', dateRaw: e.datetime_local };
     }).filter(Boolean);
   } catch(err) { console.error('[SG]', err.message); return []; }
 }
 
+// FREE: Bandsintown API (music/comedy)
 async function searchBandsintown(query, category) {
   if (category !== 'music' && category !== 'comedy') return [];
   try {
-    const url = `https://rest.bandsintown.com/artists/${encodeURIComponent(query)}/events?app_id=ticketpulse`;
+    const url = `https://rest.bandsintown.com/artists/${encodeURIComponent(query)}/events?app_id=seatgrab`;
     const r = await fetch(url);
     if (!r.ok) return [];
     const events = await r.json();
@@ -83,33 +82,19 @@ async function searchBandsintown(query, category) {
       const date = e.datetime ? new Date(e.datetime).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
       if (e.datetime && new Date(e.datetime) < new Date()) return null;
       const venueName = [venue.name, venue.city, venue.region].filter(Boolean).join(', ');
-      const ticketUrl = e.offers && e.offers[0] && e.offers[0].url ? e.offers[0].url : e.url;
-      return {
-        event: `${query} - ${e.title || 'Concert'}`,
-        match: `${query} - ${e.title || 'Concert'}`,
-        show: `${query} - ${e.title || 'Concert'}`,
-        date,
-        venue: venueName || 'TBA',
-        price: 'Check site',
-        price_number: 0,
-        source: 'Bandsintown',
-        url: ticketUrl || `https://www.bandsintown.com/a/${encodeURIComponent(query)}`,
-        genre: '',
-        distance: 'Check venue',
-        verified: true,
-        trust_reason: 'Official Bandsintown listing'
-      };
+      const ticketUrl = e.offers && e.offers[0] && e.offers[0].url ? e.offers[0].url : `https://www.bandsintown.com/a/${encodeURIComponent(query)}`;
+      return { event: `${query} - ${e.title || 'Concert'}`, match: `${query} - ${e.title || 'Concert'}`, show: `${query} - ${e.title || 'Concert'}`, date, venue: venueName || 'TBA', price: 'Check site', price_number: 0, source: 'Bandsintown', url: ticketUrl, verified: true, trust_reason: 'Official Bandsintown listing', dateRaw: e.datetime };
     }).filter(Boolean);
   } catch(err) { console.error('[BIT]', err.message); return []; }
 }
 
+// FREE: Eventbrite API (comedy/theater)
 async function searchEventbrite(query, category, location) {
   if (category !== 'comedy' && category !== 'theater') return [];
   try {
     if (!EVENTBRITE_TOKEN) return [];
-    const catMap = { comedy: 'comedy', theater: 'performing_arts' };
-    const subcat = catMap[category] || 'comedy';
-    let url = `https://www.eventbriteapi.com/v3/events/search/?q=${encodeURIComponent(query)}&categories=${subcat}&expand=venue,ticket_availability&sort_by=date&token=${EVENTBRITE_TOKEN}`;
+    const catMap = { comedy: '103', theater: '105' };
+    let url = `https://www.eventbriteapi.com/v3/events/search/?q=${encodeURIComponent(query)}&categories=${catMap[category]||'103'}&expand=venue,ticket_availability&sort_by=date&token=${EVENTBRITE_TOKEN}`;
     if (location) { const city = location.split(',')[0].trim(); url += `&location.address=${encodeURIComponent(city)}&location.within=50mi`; }
     const r = await fetch(url);
     if (!r.ok) return [];
@@ -123,148 +108,127 @@ async function searchEventbrite(query, category, location) {
       const ticket = e.ticket_availability || {};
       const price = ticket.minimum_ticket_price ? `$${Math.round(parseFloat(ticket.minimum_ticket_price.major_value))}` : (e.is_free ? 'Free' : 'Check site');
       const priceNum = ticket.minimum_ticket_price ? Math.round(parseFloat(ticket.minimum_ticket_price.major_value)) : 0;
-      return {
-        show: e.name && e.name.text || query,
-        event: e.name && e.name.text || query,
-        match: e.name && e.name.text || query,
-        date,
-        venue: venueName || 'TBA',
-        price,
-        price_number: priceNum,
-        source: 'Eventbrite',
-        url: e.url,
-        distance: 'Check venue',
-        verified: true,
-        trust_reason: 'Official Eventbrite listing'
-      };
+      return { show: e.name && e.name.text || query, event: e.name && e.name.text || query, match: e.name && e.name.text || query, date, venue: venueName || 'TBA', price, price_number: priceNum, source: 'Eventbrite', url: e.url, verified: true, trust_reason: 'Official Eventbrite listing', dateRaw: e.start && e.start.local };
     }).filter(Boolean);
   } catch(err) { console.error('[EB]', err.message); return []; }
 }
 
-async function searchSportsDB(query, category, location) {
+// FREE: TheSportsDB (basketball/football/baseball)
+async function searchSportsDB(query, category) {
   if (!['basketball','football','baseball'].includes(category)) return [];
   try {
-    const sportMap = { basketball: 'Basketball', football: 'American Football', baseball: 'Baseball' };
-    const leagueMap = { basketball: '4387', football: '4391', baseball: '4424' };
-    const sport = sportMap[category];
-    const leagueId = leagueMap[category];
-
-    // Search for team events
     const teamUrl = `https://www.thesportsdb.com/api/v1/json/3/searchteams.php?t=${encodeURIComponent(query)}`;
     const teamRes = await fetch(teamUrl);
     if (!teamRes.ok) return [];
     const teamData = await teamRes.json();
     const teams = teamData.teams || [];
     if (!teams.length) return [];
-
     const team = teams[0];
     const eventsUrl = `https://www.thesportsdb.com/api/v1/json/3/eventsnext.php?id=${team.idTeam}`;
     const eventsRes = await fetch(eventsUrl);
     if (!eventsRes.ok) return [];
     const eventsData = await eventsRes.json();
     const events = eventsData.events || [];
-
     return events.slice(0, 5).map(e => {
       const date = e.dateEvent ? new Date(e.dateEvent).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
       if (e.dateEvent && new Date(e.dateEvent) < new Date()) return null;
-      const venueName = [e.strVenue, e.strCity, e.strCountry].filter(Boolean).join(', ');
-      // Build Ticketmaster search URL for this game
-      const tmSearchUrl = `https://www.ticketmaster.com/search?q=${encodeURIComponent(e.strEvent || query)}`;
-      return {
-        match: e.strEvent || `${query} game`,
-        event: e.strEvent || `${query} game`,
-        show: e.strEvent || `${query} game`,
-        date,
-        venue: venueName || 'TBA',
-        price: 'Check site',
-        price_number: 0,
-        source: 'TheSportsDB',
-        url: tmSearchUrl,
-        league: e.strLeague || sport,
-        distance: 'Check venue',
-        verified: true,
-        trust_reason: 'Official TheSportsDB schedule'
-      };
+      const venueName = [e.strVenue, e.strCity].filter(Boolean).join(', ');
+      const tmUrl = `https://www.ticketmaster.com/search?q=${encodeURIComponent(e.strEvent || query)}`;
+      return { match: e.strEvent || `${query} game`, event: e.strEvent || `${query} game`, show: e.strEvent || `${query} game`, date, venue: venueName || 'TBA', price: 'Check site', price_number: 0, source: 'TheSportsDB', url: tmUrl, league: e.strLeague || '', verified: true, trust_reason: 'Official schedule data', dateRaw: e.dateEvent };
     }).filter(Boolean);
   } catch(err) { console.error('[SDB]', err.message); return []; }
 }
 
-function parseJsonArray(text) {
-  if (!text) return [];
-  const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-  const matches = [];
-  let depth = 0, start = -1;
-  for (let i = 0; i < cleaned.length; i++) {
-    if (cleaned[i] === '[') { if (depth === 0) start = i; depth++; }
-    else if (cleaned[i] === ']') { depth--; if (depth === 0 && start !== -1) { matches.push(cleaned.slice(start, i + 1)); start = -1; } }
-  }
-  for (const match of matches) {
-    try { const p = JSON.parse(match); if (Array.isArray(p) && p.length > 0) return p; } catch(e) {
-      try { const fixed = match.replace(/,\s*}/g,'}').replace(/,\s*]/g,']'); const p = JSON.parse(fixed); if (Array.isArray(p) && p.length > 0) return p; } catch(e2) {}
+// FREE: Smart price prediction without AI
+function smartPricePrediction(tickets, query, category) {
+  if (!tickets || !tickets.length) return null;
+  const now = new Date();
+  let earliestDate = null;
+  let lowestPrice = 9999;
+  let highestPrice = 0;
+
+  tickets.forEach(t => {
+    if (t.dateRaw) {
+      const d = new Date(t.dateRaw);
+      if (!earliestDate || d < earliestDate) earliestDate = d;
     }
+    if (t.price_number && t.price_number > 0) {
+      if (t.price_number < lowestPrice) lowestPrice = t.price_number;
+      if (t.price_number > highestPrice) highestPrice = t.price_number;
+    }
+  });
+
+  const daysUntil = earliestDate ? Math.ceil((earliestDate - now) / 86400000) : 999;
+  const priceSpread = highestPrice - lowestPrice;
+
+  let recommendation, trend, badge, reason;
+
+  if (daysUntil <= 7) {
+    recommendation = 'buy_now';
+    trend = 'rising';
+    badge = 'Prices rising fast';
+    reason = 'Event is in ' + daysUntil + ' days - prices typically spike in the last week.';
+  } else if (daysUntil <= 30) {
+    recommendation = 'buy_now';
+    trend = 'rising';
+    badge = 'Buy soon';
+    reason = 'Less than a month away - prices usually rise as the event approaches.';
+  } else if (daysUntil <= 60) {
+    recommendation = 'uncertain';
+    trend = 'stable';
+    badge = 'Good deal now';
+    reason = 'About ' + Math.round(daysUntil/30) + ' months away - prices are typically stable right now.';
+  } else if (daysUntil > 90) {
+    recommendation = 'wait';
+    trend = 'falling';
+    badge = 'Wait for drops';
+    reason = 'Event is more than 3 months away - prices may drop closer to the date.';
+  } else {
+    recommendation = 'uncertain';
+    trend = 'stable';
+    badge = 'Prices stable';
+    reason = 'Prices appear stable. Monitor daily for any drops.';
   }
-  return [];
-}
 
-async function callAnthropic(system, msg, retries = 2) {
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 1200, tools: [{ type: 'web_search_20250305', name: 'web_search' }], system, messages: [{ role: 'user', content: msg }] })
-      });
-      if (!r.ok) throw new Error('API ' + r.status);
-      const d = await r.json();
-      const text = (d.content || []).map(b => b.type === 'text' ? b.text : '').join('');
-      const result = parseJsonArray(text);
-      if (result.length > 0) return result;
-      if (i < retries) { await new Promise(r => setTimeout(r, 800)); continue; }
-      return [];
-    } catch(err) { if (i === retries) throw err; await new Promise(r => setTimeout(r, 1000 * (i + 1))); }
+  if (priceSpread > lowestPrice * 0.5 && lowestPrice < 9999) {
+    recommendation = 'buy_now';
+    badge = 'Best time to buy';
+    reason = reason + ' Big price variation found - grab the lowest price now.';
   }
-  return [];
+
+  return { trend, confidence: daysUntil <= 30 ? 'high' : 'medium', recommendation, reason, badge };
 }
 
-async function callAnthropicObject(system, msg) {
-  try {
-    const r = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
-      body: JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 500, tools: [{ type: 'web_search_20250305', name: 'web_search' }], system, messages: [{ role: 'user', content: msg }] })
-    });
-    if (!r.ok) return null;
-    const d = await r.json();
-    const text = (d.content || []).map(b => b.type === 'text' ? b.text : '').join('');
-    const m = text.match(/\{[\s\S]*?\}/);
-    if (!m) return null;
-    try { return JSON.parse(m[0]); } catch(e) { return null; }
-  } catch(err) { return null; }
+// FREE: Smart recommendations based on history
+function smartRecommendations(savedSearches, location) {
+  if (!savedSearches || !savedSearches.length) return [];
+  const cats = {};
+  savedSearches.forEach(s => { cats[s.category] = (cats[s.category] || 0) + 1; });
+  const topCat = Object.keys(cats).sort((a,b) => cats[b]-cats[a])[0];
+  const SUGGESTIONS = {
+    soccer: [{name:'FIFA World Cup 2026',category:'soccer',reason:'Biggest soccer event in the world happening right now in USA',date:'June-July 2026',venue:'Multiple US cities',price_estimate:'$500-$2000',search_query:'FIFA World Cup'},{name:'MLS Games Near You',category:'soccer',reason:'Local professional soccer you might enjoy',date:'Upcoming',venue:location||'Your city',price_estimate:'$25-$150',search_query:'MLS soccer'}],
+    music: [{name:'Sabrina Carpenter Tour',category:'music',reason:'One of the hottest artists right now',date:'2026',venue:'Major US cities',price_estimate:'$80-$400',search_query:'Sabrina Carpenter'},{name:'Coldplay World Tour',category:'music',reason:'Legendary band with incredible live shows',date:'2026',venue:'Major US cities',price_estimate:'$100-$500',search_query:'Coldplay'}],
+    basketball: [{name:'NBA Playoffs',category:'basketball',reason:'Most exciting time in basketball',date:'Spring 2027',venue:'Major US cities',price_estimate:'$100-$800',search_query:'NBA Playoffs'},{name:'Lakers vs Celtics',category:'basketball',reason:'Greatest rivalry in NBA history',date:'Upcoming',venue:'Various',price_estimate:'$150-$600',search_query:'Lakers'}],
+    football: [{name:'Dallas Cowboys',category:'football',reason:'Americas Team - always a great game',date:'Fall 2026',venue:'AT&T Stadium, Arlington TX',price_estimate:'$80-$500',search_query:'Dallas Cowboys'},{name:'NFL Playoffs',category:'football',reason:'Most watched sporting event in America',date:'January 2027',venue:'Various',price_estimate:'$200-$1000',search_query:'NFL Playoffs'}],
+    baseball: [{name:'World Series',category:'baseball',reason:'Championship of Americas favorite pastime',date:'October 2026',venue:'TBD',price_estimate:'$200-$1500',search_query:'World Series'},{name:'Yankees vs Red Sox',category:'baseball',reason:'Greatest rivalry in baseball',date:'Upcoming',venue:'Various',price_estimate:'$50-$300',search_query:'Yankees'}],
+    theater: [{name:'Hamilton',category:'theater',reason:'Award-winning musical everyone should see',date:'Ongoing',venue:'Broadway, New York',price_estimate:'$100-$400',search_query:'Hamilton'},{name:'Wicked',category:'theater',reason:'Classic musical with stunning performances',date:'Ongoing',venue:'Various',price_estimate:'$80-$300',search_query:'Wicked'}],
+    comedy: [{name:'Dave Chappelle',category:'comedy',reason:'One of the greatest comedians of our time',date:'2026',venue:'Various',price_estimate:'$80-$200',search_query:'Dave Chappelle'},{name:'Kevin Hart',category:'comedy',reason:'Hilarious shows perfect for a night out',date:'2026',venue:'Various',price_estimate:'$60-$180',search_query:'Kevin Hart'}]
+  };
+  return (SUGGESTIONS[topCat] || SUGGESTIONS.music).slice(0, 4);
 }
 
-function getSearchSystem(query, category, pf, lf, cf, gf) {
-  const today_str = new Date().toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'});
-  const base = `Today is ${today_str}. ${pf} ${lf} STRICT RULES: 1) ONLY return events AFTER today. 2) Prices MUST be exact from the platform. 3) Direct event URLs only. Return ONLY raw JSON array, no markdown. Up to 5 results cheapest first.`;
-  const fmt = {
-    soccer: '[{"match":"...","date":"Month DD YYYY","venue":"Stadium, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","competition":"...","distance":"..."}]',
-    music: '[{"event":"Artist - Tour","date":"Month DD YYYY","venue":"Venue, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","genre":"...","distance":"..."}]',
-    basketball: '[{"match":"Team vs Team","date":"Month DD YYYY","venue":"Arena, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","league":"...","distance":"..."}]',
-    football: '[{"match":"Team vs Team","date":"Month DD YYYY","venue":"Stadium, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","league":"...","distance":"..."}]',
-    baseball: '[{"match":"Team vs Team","date":"Month DD YYYY","venue":"Stadium, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","league":"MLB","distance":"..."}]',
-    theater: '[{"show":"Show Name","date":"Month DD YYYY","venue":"Theater, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","type":"...","distance":"..."}]',
-    comedy: '[{"show":"Comedian - Tour","date":"Month DD YYYY","venue":"Venue, City, State","price":"$XXX","price_number":XXX,"source":"...","url":"https://...","distance":"..."}]'
-  };
-  const sources = {
-    soccer: 'StubHub, SeatGeek, Ticketmaster, Gametime, TickPick, FIFA.com',
-    music: 'Ticketmaster, StubHub, SeatGeek, AXS, LiveNation',
-    basketball: 'Ticketmaster, SeatGeek, StubHub, NBA.com, Gametime',
-    football: 'Ticketmaster, SeatGeek, StubHub, NFL.com, Gametime',
-    baseball: 'Ticketmaster, SeatGeek, StubHub, MLB.com, Gametime',
-    theater: 'Telecharge, Ticketmaster, StubHub, BroadwayBox, TodayTix',
-    comedy: 'Ticketmaster, StubHub, SeatGeek, AXS, LiveNation'
-  };
-  const wcContext = (category === 'soccer' && (query.toLowerCase().includes('argentina') || query.toLowerCase().includes('world cup') || query.toLowerCase().includes('fifa'))) ? 'FIFA World Cup 2026 is happening RIGHT NOW June-July 2026 in USA. Argentina matches: vs Algeria June 16 Kansas City, vs Austria June 22 Arlington TX, Jordan vs Argentina June 27 Arlington TX. ' : '';
-  return `${wcContext}Search for ${category} tickets for "${query}" on ${sources[category]||sources.music}. ${base} ${category==='soccer'?cf:''} ${category==='music'?gf:''} Format: ${fmt[category]||fmt.music}`;
+// Merge and deduplicate tickets
+function mergeTickets(arrays, maxPrice) {
+  const seen = new Set();
+  const merged = [].concat(...arrays).filter(t => {
+    if (!t) return false;
+    const key = (t.match || t.event || '').toLowerCase().substring(0, 30) + (t.date || '');
+    if (seen.has(key)) return false;
+    seen.add(key);
+    if (maxPrice && t.price_number && t.price_number > maxPrice) return false;
+    return true;
+  });
+  return merged.sort((a, b) => (a.price_number || 9999) - (b.price_number || 9999));
 }
 
 export default async function handler(req, res) {
@@ -275,9 +239,9 @@ export default async function handler(req, res) {
 
   const path = req.url.split('?')[0];
 
-  if (req.method === 'GET' && (path === '/api' || path === '/api/')) return res.json({ status: 'TicketPulse API running!' });
+  if (req.method === 'GET' && (path === '/api' || path === '/api/')) return res.json({ status: 'SeatGrab API running! 100% free.' });
   if (req.method === 'GET' && path === '/api/warmup') return res.json({ status: 'warm', time: Date.now() });
-  if (req.method === 'GET' && path === '/api/health') return res.json({ status: 'ok', cache: cache.size });
+  if (req.method === 'GET' && path === '/api/health') return res.json({ status: 'ok', cache: cache.size, cost: 'FREE' });
 
   if (req.method === 'GET' && path.startsWith('/api/reviews/')) {
     const eventName = decodeURIComponent(path.replace('/api/reviews/', ''));
@@ -288,6 +252,7 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(404).json({ error: 'Not found' });
   const body = req.body || {};
 
+  // PREFETCH - free, instant
   if (path === '/api/prefetch') {
     const { searches } = body;
     if (!searches || !searches.length) return res.json({ prefetched: 0 });
@@ -296,73 +261,47 @@ export default async function handler(req, res) {
       const key = `${s.category}:${s.query.toLowerCase()}:${s.location||''}`;
       if (getCached(key)) { prefetched++; return; }
       try {
-        const [tm, sg, bit] = await Promise.all([
+        const [tm, sg] = await Promise.all([
           searchTicketmaster(s.query, s.category, s.location, null),
-          searchSeatGeek(s.query, s.category, s.location, null),
-          searchBandsintown(s.query, s.category)
+          searchSeatGeek(s.query, s.category, s.location, null)
         ]);
-        const tickets = [...tm, ...sg, ...bit];
+        const tickets = mergeTickets([tm, sg], null);
         if (tickets.length) { setCache(key, { tickets, prediction: null, flights: [], hotels: [] }); prefetched++; }
       } catch(e) {}
     }));
     return res.json({ prefetched });
   }
 
+  // MAIN SEARCH - 100% free
   if (path === '/api/search') {
-    const { query, category, maxPrice, location, competition, genre } = body;
+    const { query, category, maxPrice, location } = body;
     if (!query || !category) return res.status(400).json({ error: 'Missing query or category' });
-    const cacheKey = `${category}:${query.toLowerCase()}:${maxPrice||''}:${location||''}:${competition||''}:${genre||''}`;
+    const cacheKey = `${category}:${query.toLowerCase()}:${maxPrice||''}:${location||''}`;
     const cached = getCached(cacheKey);
     if (cached) return res.json({ ...cached, fromCache: true });
-    const pf = maxPrice ? `Only under $${maxPrice}.` : '';
-    const lf = location ? `Near ${location}.` : '';
-    const cf = competition && competition !== 'Any' ? `Only ${competition}.` : '';
-    const gf = genre && genre !== 'Any' ? `Only ${genre}.` : '';
-    const sys = getSearchSystem(query, category, pf, lf, cf, gf);
-    const predCacheKey = `pred:${query.toLowerCase()}:${category}`;
-    const cachedPred = getCached(predCacheKey);
 
+    // Search all free APIs in parallel
     const [tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets] = await Promise.all([
       searchTicketmaster(query, category, location, maxPrice),
       searchSeatGeek(query, category, location, maxPrice),
       searchBandsintown(query, category),
       searchEventbrite(query, category, location),
-      searchSportsDB(query, category, location)
+      searchSportsDB(query, category)
     ]);
-    console.log(`[TM] ${tmTickets.length} [SG] ${sgTickets.length} [BIT] ${bitTickets.length} [EB] ${ebTickets.length} [SDB] ${sdbTickets.length} for ${query}`);
 
-    const seen = new Set();
-    const mergedTickets = [...tmTickets, ...sgTickets, ...bitTickets, ...ebTickets, ...sdbTickets].filter(t => {
-      const key = (t.match || t.event || '').toLowerCase() + (t.date || '');
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    }).sort((a, b) => (a.price_number || 9999) - (b.price_number || 9999));
+    console.log(`[TM]${tmTickets.length} [SG]${sgTickets.length} [BIT]${bitTickets.length} [EB]${ebTickets.length} [SDB]${sdbTickets.length}`);
 
-    const [rawTickets, prediction] = await Promise.all([
-      mergedTickets.length >= 2 ? Promise.resolve(mergedTickets) : callAnthropic(sys, `Search right now for "${query}" ${category} tickets. JSON only.`),
-      cachedPred ? Promise.resolve(cachedPred) : callAnthropicObject(
-        `Ticket price analyst. Today ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}. Return ONLY JSON: {"trend":"rising/falling/stable","confidence":"high/medium/low","recommendation":"buy_now/wait/uncertain","reason":"One sentence","badge":"Best time to buy / Prices rising fast / Wait for drops / Good deal now"}`,
-        `Analyze price trend for ${query} tickets. JSON only.`
-      )
-    ]);
-    if (prediction && !cachedPred) setCache(predCacheKey, prediction);
+    const tickets = mergeTickets([tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets], maxPrice);
 
-    let tickets = maxPrice ? rawTickets.filter(t => !t.price_number || t.price_number <= maxPrice) : rawTickets;
-    if (!tickets.length) {
-      const fb1 = await callAnthropic(`Search StubHub, SeatGeek, Ticketmaster for "${query}" ${category} tickets 2026. JSON array.`, `Find "${query}" tickets. JSON only.`);
-      if (fb1.length) tickets = maxPrice ? fb1.filter(t => !t.price_number || t.price_number <= maxPrice) : fb1;
-    }
-    if (!tickets.length) {
-      const fb2 = await callAnthropic(`Find any 2026 tickets for "${query}" on any major ticket platform. JSON array with at least 1 result.`, `Any tickets for "${query}"? JSON only.`);
-      if (fb2.length) tickets = maxPrice ? fb2.filter(t => !t.price_number || t.price_number <= maxPrice) : fb2;
-    }
-    const safeTickets = tickets.map(t => ({ ...t, verified: true, trust_reason: isTrusted(t.source, TRUSTED_TICKETS) ? 'Verified trusted platform' : 'Reviewed' }));
-    const result = { tickets: safeTickets, prediction: prediction || null, flights: [], hotels: [], fromCache: false };
-    setCache(cacheKey, result);
+    // FREE smart prediction - no AI needed
+    const prediction = smartPricePrediction(tickets, query, category);
+
+    const result = { tickets, prediction, flights: [], hotels: [], fromCache: false };
+    if (tickets.length) setCache(cacheKey, result);
     return res.json(result);
   }
 
+  // TRAVEL - free deep links
   if (path === '/api/travel') {
     const { userCity, eventVenue, eventDate } = body;
     if (!userCity || !eventVenue) return res.status(400).json({ error: 'Missing fields' });
@@ -372,17 +311,18 @@ export default async function handler(req, res) {
     let dateStr = '';
     if (eventDate) { try { const d = new Date(eventDate); if (!isNaN(d)) dateStr = d.toISOString().split('T')[0]; } catch(e) {} }
     const flights = [
-      { route: `${userCityShort} to ${eventCityShort}`, source: 'Google Flights', price: 'Search for live prices', price_number: 0, url: `https://www.google.com/travel/flights?q=Flights+from+${encodeURIComponent(userCityShort)}+to+${encodeURIComponent(eventCityShort)}${dateStr?'+on+'+dateStr:''}`, verified: true, description: 'Compare all airlines on Google Flights' },
-      { route: `${userCityShort} to ${eventCityShort}`, source: 'Kayak', price: 'Search for live prices', price_number: 0, url: `https://www.kayak.com/flights/${encodeURIComponent(userCityShort)}-${encodeURIComponent(eventCityShort)}${dateStr?'/'+dateStr:''}`, verified: true, description: 'Find deals on Kayak' },
-      { route: `${userCityShort} to ${eventCityShort}`, source: 'Expedia', price: 'Search for live prices', price_number: 0, url: `https://www.expedia.com/Flights-Search?trip=oneway&leg1=from:${encodeURIComponent(userCityShort)},to:${encodeURIComponent(eventCityShort)}`, verified: true, description: 'Book with Expedia price guarantee' }
+      { source: 'Google Flights', price: 'Search for live prices', price_number: 0, url: `https://www.google.com/travel/flights?q=Flights+from+${encodeURIComponent(userCityShort)}+to+${encodeURIComponent(eventCityShort)}${dateStr?'+on+'+dateStr:''}`, verified: true, description: 'Compare all airlines on Google Flights' },
+      { source: 'Kayak', price: 'Search for live prices', price_number: 0, url: `https://www.kayak.com/flights/${encodeURIComponent(userCityShort)}-${encodeURIComponent(eventCityShort)}${dateStr?'/'+dateStr:''}`, verified: true, description: 'Find deals on Kayak' },
+      { source: 'Expedia', price: 'Search for live prices', price_number: 0, url: `https://www.expedia.com/Flights-Search?trip=oneway&leg1=from:${encodeURIComponent(userCityShort)},to:${encodeURIComponent(eventCityShort)}`, verified: true, description: 'Book with Expedia price guarantee' }
     ];
     const hotels = [
-      { name: `Hotels in ${eventCityShort}`, source: 'Booking.com', price_per_night: 'Search for live prices', price_number: 0, url: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(eventCityShort)}&checkin=${dateStr||''}&group_adults=1&no_rooms=1`, verified: true, description: 'Worlds largest hotel selection' },
-      { name: `Hotels in ${eventCityShort}`, source: 'Hotels.com', price_per_night: 'Search for live prices', price_number: 0, url: `https://www.hotels.com/search.do?q-destination=${encodeURIComponent(eventCityShort)}&q-check-in=${dateStr||''}`, verified: true, description: 'Great deals on Hotels.com' }
+      { source: 'Booking.com', price_per_night: 'Search for live prices', price_number: 0, url: `https://www.booking.com/searchresults.html?ss=${encodeURIComponent(eventCityShort)}&checkin=${dateStr||''}&group_adults=1&no_rooms=1`, verified: true, description: 'Worlds largest hotel selection' },
+      { source: 'Hotels.com', price_per_night: 'Search for live prices', price_number: 0, url: `https://www.hotels.com/search.do?q-destination=${encodeURIComponent(eventCityShort)}&q-check-in=${dateStr||''}`, verified: true, description: 'Great deals on Hotels.com' }
     ];
     return res.json({ flights, hotels, destination: eventVenue, fromCache: false });
   }
 
+  // REVIEWS
   if (path === '/api/review') {
     const { eventName, category, rating, review, userName } = body;
     if (!eventName || !rating) return res.status(400).json({ error: 'Missing fields' });
@@ -394,34 +334,36 @@ export default async function handler(req, res) {
     return res.json({ success: true, review: newReview });
   }
 
+  // COMPARE - uses cached results, free
   if (path === '/api/compare') {
     const { query, category } = body;
     if (!query) return res.status(400).json({ error: 'Missing query' });
-    const cacheKey = `compare:${category}:${query.toLowerCase()}`;
+    const cacheKey = `${category}:${query.toLowerCase()}::`;
     const cached = getCached(cacheKey);
-    if (cached) return res.json({ comparisons: cached, fromCache: true });
-    const labels = { soccer:'soccer match', basketball:'basketball game', football:'football game', baseball:'baseball game', theater:'theater show', comedy:'comedy show', music:'concert' };
-    const sys = `Search "${query}" ${labels[category]||'event'} tickets across StubHub, SeatGeek, Ticketmaster, Gametime, TickPick, VividSeats. Today ${new Date().toLocaleDateString()}. Return ONLY raw JSON array sorted cheapest: [{"source":"...","price":"$XXX","price_number":XXX,"url":"https://...","section":"..."}]`;
-    const comparisons = await callAnthropic(sys, `Compare ${query} prices. JSON only.`);
-    setCache(cacheKey, comparisons);
-    return res.json({ comparisons, fromCache: false });
+    const tickets = cached ? cached.tickets : [];
+    if (tickets.length) {
+      const comparisons = tickets
+        .filter(t => t.price_number && t.price_number > 0)
+        .sort((a,b) => a.price_number - b.price_number)
+        .map(t => ({ source: t.source, price: t.price, price_number: t.price_number, url: t.url, section: t.venue }));
+      return res.json({ comparisons, fromCache: true });
+    }
+    return res.json({ comparisons: [], fromCache: false });
   }
 
+  // DIGEST - uses cached data, free
   if (path === '/api/digest') {
     const { searches } = body;
     if (!searches || !searches.length) return res.status(400).json({ error: 'No searches' });
     const results = [];
     for (const s of searches.slice(0, 5)) {
-      const key = `${s.category}:${s.query.toLowerCase()}:::`;
+      const key = `${s.category}:${s.query.toLowerCase()}::`;
       const cached = getCached(key);
       let tickets = cached ? cached.tickets : [];
       if (!tickets.length) {
         try {
-          const [tm, sg] = await Promise.all([
-            searchTicketmaster(s.query, s.category, '', null),
-            searchSeatGeek(s.query, s.category, '', null)
-          ]);
-          tickets = [...tm, ...sg];
+          const [tm, sg] = await Promise.all([searchTicketmaster(s.query, s.category, '', null), searchSeatGeek(s.query, s.category, '', null)]);
+          tickets = mergeTickets([tm, sg], null);
         } catch(e) {}
       }
       if (tickets.length) results.push({ query: s.query, category: s.category, tickets: tickets.slice(0, 3) });
@@ -429,20 +371,28 @@ export default async function handler(req, res) {
     return res.json({ results });
   }
 
+  // RECOMMENDATIONS - smart, free
   if (path === '/api/recommendations') {
     const { savedSearches, location } = body;
-    if (!savedSearches || !savedSearches.length) return res.json({ recommendations: [] });
-    const sys = `Smart event recommendations. ${location ? 'User is in ' + location + '.' : ''} Today ${new Date().toLocaleDateString()}. Return ONLY raw JSON array: [{"name":"...","category":"soccer/music/basketball/football/baseball/theater/comedy","reason":"...","date":"...","venue":"City, State","price_estimate":"$XXX-$XXX","search_query":"exact search term"}] Up to 4.`;
-    const recommendations = await callAnthropic(sys, `User likes: ${JSON.stringify(savedSearches.slice(0,8))}. Recommend events. JSON only.`);
+    const recommendations = smartRecommendations(savedSearches, location);
     return res.json({ recommendations });
   }
 
+  // WATCH - uses Ticketmaster + SeatGeek, free
   if (path === '/api/watch') {
     const { query, category, location } = body;
     if (!query || !location) return res.status(400).json({ error: 'Missing fields' });
-    const labels = { soccer:'soccer matches', basketball:'basketball games', football:'football games', baseball:'baseball games', theater:'theater shows', comedy:'comedy shows', music:'concerts' };
-    const sys = `Search upcoming ${labels[category]||'events'} for "${query}" near ${location} in 2026. Return ONLY raw JSON array: [{"event":"...","date":"Month DD YYYY","venue":"Venue, City, State","price_estimate":"$XXX-$XXX","url":"https://..."}] If none return [].`;
-    const events = await callAnthropic(sys, `Is "${query}" coming to ${location}? JSON only.`);
+    const [tm, sg] = await Promise.all([
+      searchTicketmaster(query, category, location, null),
+      searchSeatGeek(query, category, location, null)
+    ]);
+    const events = mergeTickets([tm, sg], null).map(t => ({
+      event: t.match || t.event || t.show || query,
+      date: t.date,
+      venue: t.venue,
+      price_estimate: t.price,
+      url: t.url
+    }));
     return res.json({ events, query, location, category });
   }
 
