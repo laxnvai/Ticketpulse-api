@@ -36,7 +36,7 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (r2.ok) { const d2 = await r2.json(); events = (d2._embedded && d2._embedded.events) || []; }
     }
     // Filter keywords that indicate non-live events
-    const EXCLUDE_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online event', 'broadcast', 'screening', 'tv party', 'pub screening', 'bar screening', 'fan zone viewing', 'watch the', 'watch at', 'big screen'];
+    const EXCLUDE_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online event', 'broadcast', 'screening', 'tv party', 'pub screening', 'bar screening', 'fan zone viewing', 'watch the', 'watch at', 'big screen', 'folkefest', 'bord til', 'vm-final', 'fanfest'];
     return events.map(e => {
       const venue = e._embedded && e._embedded.venues && e._embedded.venues[0];
       const priceRange = e.priceRanges && e.priceRanges[0];
@@ -56,18 +56,27 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       const venueNameLower = (venue.name || '').toLowerCase();
       const BAR_KEYWORDS = ['bar', 'pub', 'tavern', 'restaurant', 'cafe', 'brewery', 'lounge', 'inn', 'kitchen', 'grill', 'forum', 'arms', 'hotel', 'hostel', 'cinema', 'academy'];
       if (BAR_KEYWORDS.some(kw => venueNameLower.includes(kw))) return null;
-      // Filter out non-stadium venues for soccer - keep real stadiums
-      if (category === 'soccer' || category === 'football') {
-        const countryCode = venue.country && venue.country.countryCode;
-        // Allow US, Canada, Mexico (World Cup 2026 host countries)
-        // Also allow events without country code (sometimes missing)
-        if (countryCode && !['US','CA','MX'].includes(countryCode)) {
-          // Only filter UK/Europe if venue looks like a bar/pub
-          const venueLower = (venue.name || '').toLowerCase();
-          const isBarType = ['forum', 'inn', 'arms', 'pub', 'bar', 'tavern', 'kitchen', 'grill', 'cafe', 'brewery'].some(kw => venueLower.includes(kw));
-          if (isBarType) return null;
-        }
-      }
+      // Smart venue filtering - works for any country, any year
+      // Filter out small venues that are clearly bars/restaurants not stadiums
+      // We check venue type keywords in multiple languages
+      const venueWords = (venue.name || '').toLowerCase();
+      const GLOBAL_BAR_WORDS = [
+        // English
+        'bar', 'pub', 'tavern', 'inn', 'lounge', 'cafe', 'brewery', 'kitchen', 'grill',
+        'restaurant', 'hotel', 'hostel', 'arms', 'club',
+        // Norwegian/Scandinavian
+        'kadettangen', 'lekter', 'bord', 'folkefest', 'kro', 'vertshus',
+        // German
+        'kneipe', 'gasthaus', 'wirtschaft',
+        // Spanish
+        'taberna', 'bodega', 'cantina',
+        // French
+        'brasserie', 'bistro', 'auberge',
+        // General entertainment non-stadium
+        'cinema', 'theatre', 'forum', 'academy', 'o2 forum', 'o2 academy',
+        'o2 shepherd', 'roundhouse', 'electric ballroom'
+      ];
+      if (GLOBAL_BAR_WORDS.some(kw => venueWords.includes(kw))) return null;
       return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing', dateRaw: dateLocal };
     }).filter(Boolean);
   } catch(err) { console.error('[TM]', err.message); return []; }
