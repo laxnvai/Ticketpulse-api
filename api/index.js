@@ -54,8 +54,8 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (!venue || !venue.name) return null;
       // Filter out bars, pubs, restaurants and non-sports venues
       const venueNameLower = (venue.name || '').toLowerCase();
-      const BAR_KEYWORDS = ['bar', 'pub', 'tavern', 'restaurant', 'cafe', 'brewery', 'lounge', 'inn', 'kitchen', 'grill', 'forum', 'club', 'hotel', 'hostel', 'arms', 'theatre', 'cinema', 'o2 forum', 'academy'];
-      if (['soccer','football','basketball','baseball'].includes(category) && BAR_KEYWORDS.some(kw => venueNameLower.includes(kw))) return null;
+      const BAR_KEYWORDS = ['bar', 'pub', 'tavern', 'restaurant', 'cafe', 'brewery', 'lounge', 'inn', 'kitchen', 'grill', 'forum', 'arms', 'hotel', 'hostel', 'cinema', 'academy'];
+      if (BAR_KEYWORDS.some(kw => venueNameLower.includes(kw))) return null;
       // Filter out non-stadium venues for soccer - keep real stadiums
       if (category === 'soccer' || category === 'football') {
         const countryCode = venue.country && venue.country.countryCode;
