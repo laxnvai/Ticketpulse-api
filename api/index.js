@@ -36,13 +36,13 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (r2.ok) { const d2 = await r2.json(); events = (d2._embedded && d2._embedded.events) || []; }
     }
     // Filter keywords that indicate non-live events
-    const EXCLUDE_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online', 'broadcast', 'screening', 'tv party'];
+    const EXCLUDE_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online event', 'broadcast', 'screening', 'tv party', 'pub screening', 'bar screening', 'fan zone viewing', 'watch the', 'watch at', 'big screen'];
     return events.map(e => {
       const venue = e._embedded && e._embedded.venues && e._embedded.venues[0];
       const priceRange = e.priceRanges && e.priceRanges[0];
       const price = priceRange ? `$${Math.round(priceRange.min)}` : 'Check site';
       const priceNum = priceRange ? Math.round(priceRange.min) : 0;
-      const venueName = venue ? `${venue.name}, ${venue.city && venue.city.name}, ${venue.state && venue.state.stateCode}` : 'TBA';
+      const venueName = venue ? [venue.name, venue.city && venue.city.name, venue.state && venue.state.stateCode].filter(Boolean).join(', ') : 'TBA';
       const dateLocal = e.dates && e.dates.start && e.dates.start.localDate;
       if (dateLocal && new Date(dateLocal) < new Date()) return null;
       const date = dateLocal ? new Date(dateLocal).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
@@ -52,6 +52,16 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (EXCLUDE_KEYWORDS.some(kw => nameLower.includes(kw))) return null;
       // Must have a real venue
       if (!venue || !venue.name) return null;
+      // Filter out bars, pubs, restaurants and non-sports venues
+      const venueNameLower = (venue.name || '').toLowerCase();
+      const BAR_KEYWORDS = ['bar', 'pub', 'tavern', 'restaurant', 'cafe', 'brewery', 'lounge', 'inn', 'kitchen', 'grill', 'forum', 'club', 'hotel', 'hostel', 'arms', 'theatre', 'cinema', 'o2 forum', 'academy'];
+      if (['soccer','football','basketball','baseball'].includes(category) && BAR_KEYWORDS.some(kw => venueNameLower.includes(kw))) return null;
+      // For soccer/football, only accept US venues (World Cup 2026 is in USA)
+      // Filter out events in UK/Europe for soccer searches
+      if (category === 'soccer') {
+        const countryCode = venue.country && venue.country.countryCode;
+        if (countryCode && countryCode !== 'US' && countryCode !== 'CA' && countryCode !== 'MX') return null;
+      }
       return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing', dateRaw: dateLocal };
     }).filter(Boolean);
   } catch(err) { console.error('[TM]', err.message); return []; }
@@ -74,7 +84,7 @@ async function searchSeatGeek(query, category, location, maxPrice) {
       const price = e.stats && e.stats.lowest_price ? `$${Math.round(e.stats.lowest_price)}` : 'Check site';
       const priceNum = e.stats && e.stats.lowest_price ? Math.round(e.stats.lowest_price) : 0;
       const date = e.datetime_local ? new Date(e.datetime_local).toLocaleDateString('en-US', {month:'long', day:'numeric', year:'numeric'}) : 'TBA';
-      const venueName = venue ? `${venue.name}, ${venue.city}, ${venue.state}` : 'TBA';
+      const venueName = venue ? [venue.name, venue.city, venue.state].filter(Boolean).join(', ') : 'TBA';
       if (maxPrice && priceNum && priceNum > maxPrice) return null;
       if (e.datetime_local && new Date(e.datetime_local) < new Date()) return null;
       const titleLower = (e.title || '').toLowerCase();
