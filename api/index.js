@@ -182,23 +182,18 @@ async function searchSportsDB(query, category) {
 }
 
 // FREE: Smart price prediction without AI
-// FREE: VividSeats deep link - major resale marketplace
+// FREE: VividSeats + StubHub + Gametime deep links
 async function searchVividSeats(query, category) {
-  // VividSeats doesn't have a free API but we can provide direct search deep links
-  const url = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(query)}`;
-  return [{
-    match: `${query} tickets on VividSeats`,
-    event: `${query} tickets on VividSeats`,
-    show: `${query} tickets on VividSeats`,
-    date: 'Multiple dates',
-    venue: 'Various venues',
-    price: 'See live prices',
-    price_number: 0,
-    source: 'VividSeats',
-    url: url,
-    verified: true,
-    trust_reason: 'Official VividSeats marketplace'
-  }];
+  const vsUrl = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(query)}`;
+  const shUrl = `https://www.stubhub.com/find/s/?q=${encodeURIComponent(query)}`;
+  const gtUrl = `https://gametime.co/search?q=${encodeURIComponent(query)}`;
+  const tpUrl = `https://www.tickpick.com/search#=${encodeURIComponent(query)}`;
+  return [
+    { match: query+' on VividSeats', event: query+' on VividSeats', show: query+' on VividSeats', date: 'Multiple dates available', venue: 'Check VividSeats for venues', price: 'See live prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
+    { match: query+' on StubHub', event: query+' on StubHub', show: query+' on StubHub', date: 'Multiple dates available', venue: 'Check StubHub for venues', price: 'See live prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
+    { match: query+' on Gametime', event: query+' on Gametime', show: query+' on Gametime', date: 'Multiple dates available', venue: 'Check Gametime for venues', price: 'See live prices', price_number: 0, source: 'Gametime', url: gtUrl, verified: true, trust_reason: 'Last minute ticket deals' },
+    { match: query+' on TickPick', event: query+' on TickPick', show: query+' on TickPick', date: 'Multiple dates available', venue: 'Check TickPick for venues', price: 'No fees - see prices', price_number: 0, source: 'TickPick', url: tpUrl, verified: true, trust_reason: 'No fee ticket marketplace' },
+  ];
 }
 
 function smartPricePrediction(tickets, query, category) {
@@ -352,12 +347,32 @@ export default async function handler(req, res) {
 
     console.log(`[TM]${tmTickets.length} [SG]${sgTickets.length} [BIT]${bitTickets.length} [EB]${ebTickets.length} [SDB]${sdbTickets.length}`);
 
+    // Add marketplace deep links (VividSeats, StubHub, Gametime, TickPick)
+    const vsUrl = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(query)}`;
+    const shUrl = `https://www.stubhub.com/find/s/?q=${encodeURIComponent(query)}`;
+    const gtUrl = `https://gametime.co/search?q=${encodeURIComponent(query)}`;
+    const tpUrl = `https://www.tickpick.com/search#=${encodeURIComponent(query)}`;
+    const marketplaceLinks = [
+      { match: query+' - VividSeats', event: query+' - VividSeats', show: query+' - VividSeats', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
+      { match: query+' - StubHub', event: query+' - StubHub', show: query+' - StubHub', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
+      { match: query+' - Gametime', event: query+' - Gametime', show: query+' - Gametime', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'Gametime', url: gtUrl, verified: true, trust_reason: 'Last minute ticket deals' },
+      { match: query+' - TickPick', event: query+' - TickPick', show: query+' - TickPick', date: 'Multiple dates', venue: 'Search all venues', price: 'No fees - see prices', price_number: 0, source: 'TickPick', url: tpUrl, verified: true, trust_reason: 'No fee ticket marketplace' },
+    ];
+
     const allTickets = mergeTickets([tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets], maxPrice);
     
-    // Separate real tickets from watch parties
-    const WATCH_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online event', 'screening', 'tv party', 'watch event'];
-    const tickets = allTickets.filter(t => !WATCH_KEYWORDS.some(kw => (t.match||t.event||'').toLowerCase().includes(kw)));
-    const watchParties = allTickets.filter(t => WATCH_KEYWORDS.some(kw => (t.match||t.event||'').toLowerCase().includes(kw)));
+    // Separate real tickets from watch parties using venue AND name keywords
+    const WATCH_KEYWORDS = ['watch party', 'viewing party', 'watch along', 'livestream', 'live stream', 'virtual', 'online event', 'screening', 'tv party', 'watch event', 'folkefest', 'bord til', 'vm-final', 'fanfest', 'fan fest', 'pub quiz'];
+    const BAR_VENUE_WORDS = ['bar', 'pub', 'tavern', 'inn', 'lounge', 'cafe', 'brewery', 'kitchen', 'grill', 'restaurant', 'arms', 'hotel', 'hostel', 'kadettangen', 'lekter'];
+    
+    function isWatchParty(t) {
+      const nameLow = (t.match||t.event||'').toLowerCase();
+      const venueLow = (t.venue||'').toLowerCase();
+      return WATCH_KEYWORDS.some(kw => nameLow.includes(kw)) || BAR_VENUE_WORDS.some(kw => venueLow.includes(kw));
+    }
+    
+    const tickets = [...allTickets.filter(t => !isWatchParty(t)), ...marketplaceLinks];
+    const watchParties = allTickets.filter(t => isWatchParty(t));
 
     // FREE smart prediction - no AI needed
     const prediction = smartPricePrediction(tickets, query, category);
