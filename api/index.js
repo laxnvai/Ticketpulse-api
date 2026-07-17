@@ -54,29 +54,12 @@ async function searchTicketmaster(query, category, location, maxPrice) {
       if (!venue || !venue.name) return null;
       // Filter out bars, pubs, restaurants and non-sports venues
       const venueNameLower = (venue.name || '').toLowerCase();
-      const BAR_KEYWORDS = ['bar', 'pub', 'tavern', 'restaurant', 'cafe', 'brewery', 'lounge', 'inn', 'kitchen', 'grill', 'forum', 'arms', 'hotel', 'hostel', 'cinema', 'academy'];
-      if (BAR_KEYWORDS.some(kw => venueNameLower.includes(kw))) return null;
+      // Bar/pub venues handled at search level for proper watch party sorting
       // Smart venue filtering - works for any country, any year
       // Filter out small venues that are clearly bars/restaurants not stadiums
       // We check venue type keywords in multiple languages
-      const venueWords = (venue.name || '').toLowerCase();
-      const GLOBAL_BAR_WORDS = [
-        // English
-        'bar', 'pub', 'tavern', 'inn', 'lounge', 'cafe', 'brewery', 'kitchen', 'grill',
-        'restaurant', 'hotel', 'hostel', 'arms', 'club',
-        // Norwegian/Scandinavian
-        'kadettangen', 'lekter', 'bord', 'folkefest', 'kro', 'vertshus',
-        // German
-        'kneipe', 'gasthaus', 'wirtschaft',
-        // Spanish
-        'taberna', 'bodega', 'cantina',
-        // French
-        'brasserie', 'bistro', 'auberge',
-        // General entertainment non-stadium
-        'cinema', 'theatre', 'forum', 'academy', 'o2 forum', 'o2 academy',
-        'o2 shepherd', 'roundhouse', 'electric ballroom'
-      ];
-      if (GLOBAL_BAR_WORDS.some(kw => venueWords.includes(kw))) return null;
+      // Note: venue type filtering happens at search level, not here
+      // This lets bar/pub events through to be properly sorted into Watch Parties tab
       return { match: e.name, event: e.name, show: e.name, date, venue: venueName, price, price_number: priceNum, source: 'Ticketmaster', url: e.url, competition: '', distance: 'Check venue', verified: true, trust_reason: 'Official Ticketmaster listing', dateRaw: dateLocal };
     }).filter(Boolean);
   } catch(err) { console.error('[TM]', err.message); return []; }
