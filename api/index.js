@@ -182,6 +182,25 @@ async function searchSportsDB(query, category) {
 }
 
 // FREE: Smart price prediction without AI
+// FREE: VividSeats deep link - major resale marketplace
+async function searchVividSeats(query, category) {
+  // VividSeats doesn't have a free API but we can provide direct search deep links
+  const url = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(query)}`;
+  return [{
+    match: `${query} tickets on VividSeats`,
+    event: `${query} tickets on VividSeats`,
+    show: `${query} tickets on VividSeats`,
+    date: 'Multiple dates',
+    venue: 'Various venues',
+    price: 'See live prices',
+    price_number: 0,
+    source: 'VividSeats',
+    url: url,
+    verified: true,
+    trust_reason: 'Official VividSeats marketplace'
+  }];
+}
+
 function smartPricePrediction(tickets, query, category) {
   if (!tickets || !tickets.length) return null;
   const now = new Date();
