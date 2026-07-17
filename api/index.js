@@ -170,7 +170,7 @@ async function searchVividSeats(query, category) {
   const vsUrl = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(query)}`;
   const shUrl = `https://www.stubhub.com/secure/search?q=${encodeURIComponent(query)}`;
   const gtUrl = `https://gametime.co/search?q=${encodeURIComponent(query)}`;
-  const tpUrl = `https://www.tickpick.com/buy-tickets/?searchTerm=${encodeURIComponent(query)}`;
+  const tpUrl = `https://www.tickpick.com/search/?q=${encodeURIComponent(query)}`;
   return [
     { match: query+' on VividSeats', event: query+' on VividSeats', show: query+' on VividSeats', date: 'Multiple dates available', venue: 'Check VividSeats for venues', price: 'See live prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
     { match: query+' on StubHub', event: query+' on StubHub', show: query+' on StubHub', date: 'Multiple dates available', venue: 'Check StubHub for venues', price: 'See live prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
@@ -334,7 +334,7 @@ export default async function handler(req, res) {
     const vsUrl = `https://www.vividseats.com/search?searchTerm=${encodeURIComponent(query)}`;
     const shUrl = `https://www.stubhub.com/secure/search?q=${encodeURIComponent(query)}`;
     const gtUrl = `https://gametime.co/search?q=${encodeURIComponent(query)}`;
-    const tpUrl = `https://www.tickpick.com/buy-tickets/?searchTerm=${encodeURIComponent(query)}`;
+    const tpUrl = `https://www.tickpick.com/search/?q=${encodeURIComponent(query)}`;
     const marketplaceLinks = [
       { match: query+' - VividSeats', event: query+' - VividSeats', show: query+' - VividSeats', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
       { match: query+' - StubHub', event: query+' - StubHub', show: query+' - StubHub', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
@@ -381,9 +381,9 @@ export default async function handler(req, res) {
     const fromEnc = encodeURIComponent(userCityShort);
     const toEnc = encodeURIComponent(eventCityShort);
     const flights = [
-      { source: 'Google Flights', price: 'Search for live prices', price_number: 0, url: `https://www.google.com/travel/flights?q=Flights+from+${fromEnc}+to+${toEnc}${dateStr?'+on+'+dateStr:''}`, verified: true, description: userCityShort+' to '+eventCityShort },
-      { source: 'Kayak', price: 'Search for live prices', price_number: 0, url: `https://www.kayak.com/flights/${fromEnc}-${toEnc}${dateStr?'/'+dateStr:''}`, verified: true, description: userCityShort+' to '+eventCityShort },
-      { source: 'Expedia', price: 'Search for live prices', price_number: 0, url: `https://www.expedia.com/Flights-Search?trip=oneway&leg1=from:${fromEnc},to:${toEnc}${dateStr?',departure:'+dateStr+'TANYT':''}`, verified: true, description: userCityShort+' to '+eventCityShort }
+      { source: 'Google Flights', price: 'Search for live prices', price_number: 0, url: `https://www.google.com/travel/flights?q=Flights+from+${fromEnc}+to+${toEnc}${dateStr?'+on+'+dateStr:''}`, verified: true, description: userCityShort+' → '+eventCityShort },
+      { source: 'Kayak', price: 'Search for live prices', price_number: 0, url: `https://www.kayak.com/flights/${fromEnc}-${toEnc}${dateStr?'/'+dateStr:''}`, verified: true, description: userCityShort+' → '+eventCityShort },
+      { source: 'Expedia', price: 'Search for live prices', price_number: 0, url: `https://www.expedia.com/Flights-Search?trip=oneway&leg1=from:${fromEnc},to:${toEnc}${dateStr?',departure:'+dateStr+'TANYT':''}`, verified: true, description: userCityShort+' → '+eventCityShort }
     ];
     const hotels = [
       { source: 'Booking.com', price_per_night: 'Search for live prices', price_number: 0, url: `https://www.booking.com/searchresults.html?ss=${toEnc}&checkin=${dateStr||''}&group_adults=1&no_rooms=1`, verified: true, description: 'Hotels in '+eventCityShort },
