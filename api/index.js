@@ -4,7 +4,7 @@ const SEATGEEK_CLIENT_SECRET = process.env.SEATGEEK_CLIENT_SECRET;
 const EVENTBRITE_TOKEN = process.env.EVENTBRITE_TOKEN;
 
 const cache = new Map();
-const CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours - saves money
+const CACHE_TTL = 6 * 60 * 60 * 1000; // 6 hours - balance freshness vs cost
 function getCached(key) {
   const item = cache.get(key);
   if (!item) return null;
@@ -358,8 +358,20 @@ export default async function handler(req, res) {
     const watchParties = allTickets.filter(t => isWatchParty(t));
 
     // FREE smart prediction - only use real dated tickets, not marketplace cards
-    const realDatedTickets = tickets.filter(t => t.dateRaw && !['VividSeats','StubHub','Gametime','TickPick'].includes(t.source));
-    const prediction = smartPricePrediction(realDatedTickets.length ? realDatedTickets : tickets, query, category);
+    const realTickets = tickets.filter(t => !['VividSeats','StubHub','Gametime','TickPick'].includes(t.source));
+    const realDatedTickets = realTickets.filter(t => t.dateRaw);
+    const prediction = smartPricePrediction(realDatedTickets.length ? realDatedTickets : realTickets.length ? realTickets : tickets, query, category);
+    
+    // Add first real ticket's date/venue to marketplace cards
+    const firstReal = realTickets[0];
+    const sharedDate = firstReal ? firstReal.date : '';
+    const sharedVenue = firstReal ? firstReal.venue : '';
+    tickets.forEach(t => {
+      if (['VividSeats','StubHub','Gametime','TickPick'].includes(t.source)) {
+        if (sharedDate) t.date = sharedDate;
+        if (sharedVenue) t.venue = sharedVenue;
+      }
+    });
 
     const result = { tickets, watchParties, prediction, flights: [], hotels: [], fromCache: false };
     if (tickets.length) setCache(cacheKey, result);
