@@ -278,9 +278,10 @@ export default async function handler(req, res) {
 
   const path = req.url.split('?')[0];
 
-  if (req.method === 'GET' && (path === '/api' || path === '/api/')) return res.json({ status: 'SeatGrab API running! 100% free.' });
+  if (req.method === 'GET' && (path === '/api' || path === '/api/')) return res.json({ status: 'SeatGrab API v2.1 running!', version: '2.1', cache_ttl: '6h' });
   if (req.method === 'GET' && path === '/api/warmup') return res.json({ status: 'warm', time: Date.now() });
   if (req.method === 'GET' && path === '/api/health') return res.json({ status: 'ok', cache: cache.size, cost: 'FREE' });
+  if (req.method === 'GET' && path === '/api/clear-cache') { cache.clear(); return res.json({ status: 'cache cleared', time: Date.now() }); }
 
   if (req.method === 'GET' && path.startsWith('/api/reviews/')) {
     const eventName = decodeURIComponent(path.replace('/api/reviews/', ''));
