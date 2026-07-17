@@ -172,10 +172,10 @@ async function searchVividSeats(query, category) {
   const gtUrl = `https://gametime.co/search?q=${encodeURIComponent(query)}`;
   const tpUrl = `https://www.tickpick.com/search/?q=${encodeURIComponent(query)}`;
   return [
-    { match: query+' on VividSeats', event: query+' on VividSeats', show: query+' on VividSeats', date: 'Multiple dates available', venue: 'Check VividSeats for venues', price: 'See live prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
-    { match: query+' on StubHub', event: query+' on StubHub', show: query+' on StubHub', date: 'Multiple dates available', venue: 'Check StubHub for venues', price: 'See live prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
-    { match: query+' on Gametime', event: query+' on Gametime', show: query+' on Gametime', date: 'Multiple dates available', venue: 'Check Gametime for venues', price: 'See live prices', price_number: 0, source: 'Gametime', url: gtUrl, verified: true, trust_reason: 'Last minute ticket deals' },
-    { match: query+' on TickPick', event: query+' on TickPick', show: query+' on TickPick', date: 'Multiple dates available', venue: 'Check TickPick for venues', price: 'No fees - see prices', price_number: 0, source: 'TickPick', url: tpUrl, verified: true, trust_reason: 'No fee ticket marketplace' },
+    { match: query+' on VividSeats', event: query+' on VividSeats', show: query+' on VividSeats', date: '', venue: '', price: 'See live prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
+    { match: query+' on StubHub', event: query+' on StubHub', show: query+' on StubHub', date: '', venue: '', price: 'See live prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
+    { match: query+' on Gametime', event: query+' on Gametime', show: query+' on Gametime', date: '', venue: '', price: 'See live prices', price_number: 0, source: 'Gametime', url: gtUrl, verified: true, trust_reason: 'Last minute ticket deals' },
+    { match: query+' on TickPick', event: query+' on TickPick', show: query+' on TickPick', date: '', venue: '', price: 'No fees - see prices', price_number: 0, source: 'TickPick', url: tpUrl, verified: true, trust_reason: 'No fee ticket marketplace' },
   ];
 }
 
@@ -337,10 +337,10 @@ export default async function handler(req, res) {
     const gtUrl = `https://gametime.co/search?q=${encodeURIComponent(query)}`;
     const tpUrl = `https://www.tickpick.com/search/?q=${encodeURIComponent(query)}`;
     const marketplaceLinks = [
-      { match: query+' - VividSeats', event: query+' - VividSeats', show: query+' - VividSeats', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
-      { match: query+' - StubHub', event: query+' - StubHub', show: query+' - StubHub', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
-      { match: query+' - Gametime', event: query+' - Gametime', show: query+' - Gametime', date: 'Multiple dates', venue: 'Search all venues', price: 'See prices', price_number: 0, source: 'Gametime', url: gtUrl, verified: true, trust_reason: 'Last minute ticket deals' },
-      { match: query+' - TickPick', event: query+' - TickPick', show: query+' - TickPick', date: 'Multiple dates', venue: 'Search all venues', price: 'No fees - see prices', price_number: 0, source: 'TickPick', url: tpUrl, verified: true, trust_reason: 'No fee ticket marketplace' },
+      { match: query+' - VividSeats', event: query+' - VividSeats', show: query+' - VividSeats', date: '', venue: '', price: 'See prices', price_number: 0, source: 'VividSeats', url: vsUrl, verified: true, trust_reason: 'Major resale marketplace' },
+      { match: query+' - StubHub', event: query+' - StubHub', show: query+' - StubHub', date: '', venue: '', price: 'See prices', price_number: 0, source: 'StubHub', url: shUrl, verified: true, trust_reason: 'Worlds largest ticket marketplace' },
+      { match: query+' - Gametime', event: query+' - Gametime', show: query+' - Gametime', date: '', venue: '', price: 'See prices', price_number: 0, source: 'Gametime', url: gtUrl, verified: true, trust_reason: 'Last minute ticket deals' },
+      { match: query+' - TickPick', event: query+' - TickPick', show: query+' - TickPick', date: '', venue: '', price: 'No fees - see prices', price_number: 0, source: 'TickPick', url: tpUrl, verified: true, trust_reason: 'No fee ticket marketplace' },
     ];
 
     const allTickets = mergeTickets([tmTickets, sgTickets, bitTickets, ebTickets, sdbTickets], maxPrice);
