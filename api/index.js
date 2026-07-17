@@ -357,8 +357,9 @@ export default async function handler(req, res) {
     const tickets = [...allTickets.filter(t => !isWatchParty(t)), ...marketplaceLinks];
     const watchParties = allTickets.filter(t => isWatchParty(t));
 
-    // FREE smart prediction - no AI needed
-    const prediction = smartPricePrediction(tickets, query, category);
+    // FREE smart prediction - only use real dated tickets, not marketplace cards
+    const realDatedTickets = tickets.filter(t => t.dateRaw && !['VividSeats','StubHub','Gametime','TickPick'].includes(t.source));
+    const prediction = smartPricePrediction(realDatedTickets.length ? realDatedTickets : tickets, query, category);
 
     const result = { tickets, watchParties, prediction, flights: [], hotels: [], fromCache: false };
     if (tickets.length) setCache(cacheKey, result);
